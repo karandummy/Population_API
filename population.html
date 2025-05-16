@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Country Population Chart</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            padding: 20px;
+            margin: 0;
+        }
+        .tab-container {
+            display: flex;
+            max-width: 800px;
+            margin: 0 auto;
+            background: #f0f0f0;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .tab {
+            flex: 1;
+            padding: 15px;
+            cursor: pointer;
+            background: #007bff;
+            color: white;
+            border: none;
+            transition: background-color 0.3s;
+        }
+        .tab.active {
+            background: #0056b3;
+        }
+        .content {
+            display: none;
+            padding: 20px;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .content.active {
+            display: block;
+        }
+        select {
+            padding: 10px;
+            margin: 10px;
+            font-size: 16px;
+            width: 250px;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        .chart-container {
+            position: relative;
+            height: 500px;
+            margin-top: 20px;
+        }
+        #populationChart {
+            width: 100%;
+            height: 100%; /* Fill the container */
+        }
+        .loading {
+            display: none;
+            margin: 20px 0;
+            color: #007bff;
+        }
+        .population-value {
+            font-size: 1.2em;
+            margin: 20px 0;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <h2>Country Population Data</h2>
+    
+    <div class="tab-container">
+        <button class="tab active" data-tab="population">Population by Year</button>
+        <button class="tab" data-tab="graph">Population Graph</button>
+    </div>
+
+    <div id="population" class="content active">
+        <select id="countrySelect"></select>
+        <select id="yearSelect"></select>
+        <div class="population-value" id="populationValue"></div>
+    </div>
+
+    <div id="graph" class="content">
+        <select id="graphCountrySelect"></select>
+        <div class="chart-container">
+            <canvas id="populationChart"></canvas>
+        </div>
+    </div>
+
+    <div class="loading" id="loading">Loading data...</div>
+
+    <script>
+        class PopulationApp {
+            constructor() {
+                this.apiUrl = "https://countriesnow.space/api/v0.1/countries/population";
+                this.countriesData = [];
+                this.chart = null;
+                this.initializeElements();
+                this.addEventListeners();
+                this.fetchCountries();
+            }
+
+            initializeElements() {
+                this.elements = {
+                    tabs: document.querySelectorAll('.tab'),
+                    contents: document.querySelectorAll('.content'),
+                    countrySelect: document.getElementById('countrySelect'),
+                    yearSelect: document.getElementById('yearSelect'),
+                    graphCountrySelect: document.getElementById('graphCountrySelect'),
+                    populationValue: document.getElementById('populationValue'),
+                    loading: document.getElementById('loading'),
+                    chartCanvas: document.getElementById('populationChart')
+                };
+            }
+
+            addEventListeners() {
+                this.elements.tabs.forEach(tab => {
+                    tab.addEventListener('click', () => this.switchTab(tab.dataset.tab));
+                });
+
+                this.elements.countrySelect.addEventListener('change', () => this.updateYearSelect());
+                this.elements.yearSelect.addEventListener('change', () => this.updatePopulationValue());
+                this.elements.graphCountrySelect.addEventListener('change', () => this.updateGraph());
+            }
+
+            async fetchCountries() {
+                this.elements.loading.style.display = 'block';
+                try {
+                    const response = await fetch(this.apiUrl);
+                    if (!response.ok) throw new Error('Failed to fetch data');
+                    const data = await response.json();
+                    this.countriesData = data.data;
+                    this.populateCountrySelects();
+                } catch (error) {
+                    console.error('Error:', error);
+                    alert('Failed to load country data. Please try again.');
+                } finally {
+                    this.elements.loading.style.display = 'none';
+                }
+            }
+
+            populateCountrySelects() {
+                const options = this.countriesData.map(country => 
+                    `<option value="${country.country}">${country.country}</option>`
+                ).join('');
+                
+                const defaultOption = '<option value="" disabled selected>Select Country</option>';
+                this.elements.countrySelect.innerHTML = defaultOption + options;
+                this.elements.graphCountrySelect.innerHTML = defaultOption + options;
+            }
+
+            updateYearSelect() {
+                const country = this.getCountryData(this.elements.countrySelect.value);
+                if (!country) return;
+
+                const yearOptions = country.populationCounts
+                    .map(p => `<option value="${p.year}">${p.year}</option>`)
+                    .join('');
+                
+                this.elements.yearSelect.innerHTML = 
+                    '<option value="" disabled selected>Select Year</option>' + yearOptions;
+                this.elements.populationValue.textContent = '';
+            }
+
+            updatePopulationValue() {
+                const country = this.getCountryData(this.elements.countrySelect.value);
+                const year = this.elements.yearSelect.value;
+                if (!country || !year) return;
+
+                const population = country.populationCounts.find(p => p.year == year)?.value;
+                this.elements.populationValue.textContent = population ? 
+                    `Population in ${year}: ${population.toLocaleString()}` : 
+                    'Data not available';
+            }
+
+            updateGraph() {
+                const country = this.getCountryData(this.elements.graphCountrySelect.value);
+                if (!country) return;
+
+                const data = country.populationCounts
+                    .sort((a, b) => a.year - b.year);
+
+                if (this.chart) this.chart.destroy();
+                
+                this.chart = new Chart(this.elements.chartCanvas.getContext('2d'), {
+                    type: 'line',
+                    data: {
+                        labels: data.map(p => p.year),
+                        datasets: [{
+                            label: `${country.country} Population`,
+                            data: data.map(p => p.value),
+                            borderColor: '#007bff',
+                            tension: 0.1
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: true,
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: `Population Growth: ${country.country}`
+                            }
+                        }
+                    }
+                });
+            }
+
+            switchTab(tabId) {
+                this.elements.tabs.forEach(tab => {
+                    tab.classList.toggle('active', tab.dataset.tab === tabId);
+                });
+                this.elements.contents.forEach(content => {
+                    content.classList.toggle('active', content.id === tabId);
+                });
+            }
+
+            getCountryData(countryName) {
+                return this.countriesData.find(c => c.country === countryName);
+            }
+        }
+        new PopulationApp();
+    </script>
+</body>
+</html>
